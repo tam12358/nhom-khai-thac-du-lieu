@@ -20,6 +20,7 @@ class Query:
   # Mỗi tài liệu/văn bản sẽ tổ chức dạng 1 tuple với: (topic, nội_dung_văn_bản, danh_sách_token)
   D = []
   DocOriginArr = []
+  currentTerm = ""
   # Viết hàm tiền xử lý và tách từ tiếng Việt
   def preprocess(doc):
     # Tiến hành xử lý các lỗi từ/câu, dấu câu, v.v. trong tiếng Việt với hàm text_normalize
@@ -50,7 +51,8 @@ class Query:
   
   topic_doc_idxes_dict = {}
   doc_idx_topic_dict = {}
-  tfidf_matrix= []
+  tfidf_matrix:ArrayType #2d
+  doc_tfidf_vector_rel:ArrayType #2d
   vectorizer = TfidfVectorizer()
   # Viết hàm giúp chuyển đổi truy vấn dạng text sang tfidf vector
   def parse_query(query_text):
@@ -77,10 +79,17 @@ class Query:
     return sorted_search_results[:top_k]
 
   def doSearch(queryText:str, docRelIds:ArrayType, top_k:int = 10) -> ArrayType:
+    if(queryText != Query.currentTerm):
+      Query.doc_tfidf_vector_rel = []
+      docRelIds = []
+    Query.currentTerm = queryText
     query_tfidf_vector = Query.parse_query(queryText)
     for doc_idx in docRelIds:
-      doc_tfidf_vector_rel = np.asarray(Query.tfidf_matrix[doc_idx]).squeeze()
-      query_tfidf_vector += doc_tfidf_vector_rel
+      if len(Query.doc_tfidf_vector_rel) == 0:
+        Query.doc_tfidf_vector_rel = np.asarray(Query.tfidf_matrix[doc_idx]).squeeze()
+      else:
+        Query.doc_tfidf_vector_rel += np.asarray(Query.tfidf_matrix[doc_idx]).squeeze()
+      query_tfidf_vector += Query.doc_tfidf_vector_rel
     results = Query.search(query_tfidf_vector, top_k)
     return [{"id":result[0],"content": Query.DocOriginArr[result[0]]} for result in results]
   
@@ -108,9 +117,6 @@ class Query:
       print('Hoàn tất, tổng số lượng tài liệu/văn bản đã lấy: [{}]'.format(doc_size))
       for topic in Query.topic_doc_idxes_dict.keys():
         print(' - Chủ đề [{}] có [{}] tài liệu/văn bản.'.format(topic, len(Query.topic_doc_idxes_dict[topic])))
-
-      # Khởi tạo đối tượng TfidfVectorizer
-      
 
       # Chúng ta sẽ tạo ra một tập danh sách các tài liệu/văn bản dạng list đơn giản để thư viện Scikit-Learn có thể đọc được
       sk_docs = []
