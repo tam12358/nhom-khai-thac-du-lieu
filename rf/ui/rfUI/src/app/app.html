@@ -1,0 +1,49 @@
+<main class="main">
+  <div class="container">
+    <p>Hello</p>
+    <div class="row">
+        <div class="col-sm-12">
+            <div class="input-group mb-3">
+              <input [(ngModel)]="model.term" type="text" class="form-control" placeholder="Search" aria-label="Search" aria-describedby="button-addon2">
+              <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" id="button-addon2" (click)="search()">Search</button>
+              </div>
+            </div>
+        </div>
+      </div>
+      <div class="row">
+          <div class="col-sm-12">
+            <table class="table">
+              <tbody>
+                @for(item of searchResults;let i = $index;track item){
+                  <tr>
+                    <th scope="row">{{i}}-{{item.id}}</th>
+                    <td><input type="checkbox" [(ngModel)]="item.isChecked"></td>
+                    <td>
+                      <div id="accordion{{i}}">
+                        <div class="card">
+                          <div class="card-header" id="headingOne{{i}}">
+                            <h5 class="mb-0">
+                              <button class="btn btn-link" data-toggle="collapse" data-target="#collapseOne{{i}}" aria-expanded="false" aria-controls="collapseOne{{i}}">
+                                {{item.short}}
+                              </button>
+                            </h5>
+                          </div>
+
+                          <div id="collapseOne{{i}}" class="collapse show" aria-labelledby="headingOne{{i}}" data-parent="#accordion{{i}}">
+                            <div class="card-body">
+                              {{item.content}}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+      </div>
+    </div>
+</main>
+<router-outlet />
