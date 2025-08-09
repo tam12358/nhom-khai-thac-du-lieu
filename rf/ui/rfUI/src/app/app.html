@@ -1,6 +1,30 @@
+<style>
+  .loader {
+  border: 16px solid #f3f3f3;
+  border-radius: 50%;
+  border-top: 16px solid #3498db;
+  width: 120px;
+  height: 120px;
+  -webkit-animation: spin 2s linear infinite; /* Safari */
+  animation: spin 2s linear infinite;
+}
+/* Safari */
+@-webkit-keyframes spin {
+  0% { -webkit-transform: rotate(0deg); }
+  100% { -webkit-transform: rotate(360deg); }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>
 <main class="main">
   <div class="container">
-    <p>Hello</p>
+    <div class="row text-center"><strong>HiSearch</strong></div>
+    <div class="row">
+      <div [hidden]="!model.isSearch" class="loader"></div>
+    </div>
     <div class="row">
         <div class="col-sm-12">
             <div class="input-group mb-3">
@@ -12,12 +36,32 @@
         </div>
       </div>
       <div class="row">
+        <div class="col-sm-4">
+          <p>Total docs: {{searchResults.total}} Time:{{searchResults.time}}s Showing:{{searchResults.data.length}}/{{model.topK}}</p>
+        </div>
+        <div class="col-sm-3">
+          <label for="isReranking">Search with reranking</label>
+          <input id="isReranking" type="checkbox" [(ngModel)]="model.isReranking">
+        </div>
+        <div class="col-sm-3">
+          <label for="topK">Top K</label>
+          <input id="topK" type="text" [(ngModel)]="model.topK">
+        </div>
+      </div>
+      <div class="row">
           <div class="col-sm-12">
-            <table class="table">
+            <table class="table table-info">
+              <thead>
+                <tr>
+                  <td>Index</td>
+                  <td>Doc Relevance</td>
+                  <td>Doc Content</td>
+                </tr>
+              </thead>
               <tbody>
-                @for(item of searchResults;let i = $index;track item){
+                @for(item of searchResults.data;let i = $index;track item){
                   <tr>
-                    <th scope="row">{{i}}-{{item.id}}</th>
+                    <th scope="row">{{(i+1)}}-docId:{{item.id}}</th>
                     <td><input type="checkbox" [(ngModel)]="item.isChecked"></td>
                     <td>
                       <div id="accordion{{i}}">

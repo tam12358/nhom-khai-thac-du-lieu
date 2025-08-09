@@ -1,4 +1,5 @@
 from array import ArrayType
+import datetime
 import os
 import re
 import math
@@ -6,12 +7,16 @@ from flask_cors import CORS
 import numpy as np
 import matplotlib.pyplot as plt
 from fontTools.misc.cython import returns
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from wordcloud import WordCloud
 from underthesea import text_normalize
 from underthesea import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.spatial import distance
 import json
+from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder
 
 class Query:
 
@@ -21,6 +26,7 @@ class Query:
   D = []
   DocOriginArr = []
   currentTerm = ""
+  totalHits = 0
   # Viết hàm tiền xử lý và tách từ tiếng Việt
   def preprocess(doc):
     # Tiến hành xử lý các lỗi từ/câu, dấu câu, v.v. trong tiếng Việt với hàm text_normalize
@@ -42,9 +48,10 @@ class Query:
         for line in f:
           line = line.lower().strip()
           lines.append(line)
+
       doc = " ".join(lines)
+      Query.DocOriginArr.append(doc)
       clean_doc = re.sub('\W+',' ', doc)
-      Query.DocOriginArr.append(clean_doc)
       (normalized_doc, tokens) = Query.preprocess(clean_doc)
       docs.append((topic, normalized_doc, tokens))
     return docs
@@ -63,7 +70,7 @@ class Query:
     return query_tfidf_vector
 
   # Viết hàm giúp tìm kiếm top-k (mặc định 10) các kết quả tài liệu/văn bản tương đồng với truy vấn
-  def search(query_tfidf_vector, top_k = 10):
+  def search(query_tfidf_vector, top_k = 20):
     search_results = {}
     for doc_idx, doc_tfidf_vector in enumerate(Query.tfidf_matrix):
         # Convert the document vector to a 1D array
@@ -73,12 +80,49 @@ class Query:
         search_results[doc_idx] = cs_score
     # Tiến hành sắp xếp các tài liệu/văn bản theo mức độ tương đồng từ cao -> thấp
     sorted_search_results = sorted(search_results.items(), key=lambda item: item[1], reverse=True)
+    Query.totalHits = len(sorted_search_results)
+    if(len(sorted_search_results)) < top_k:
+      top_k = len(sorted_search_results)
     print('Top-[{}] tài liệu/văn bản có liên quan đến truy vấn.'.format(top_k))
     for idx, (doc_idx, sim_score) in enumerate(sorted_search_results[:top_k]):
       print(' - [{}]. Tài liệu [{}], chủ đề: [{}] -> mức độ tương đồng: [{:.6f}]'.format(idx + 1, doc_idx, Query.doc_idx_topic_dict[doc_idx], sim_score))
     return sorted_search_results[:top_k]
+  
+  def reranking(query,searchResults):
+    print(searchResults)
+    documents = [doc["content"] for doc in searchResults]
+    tokenizer = AutoTokenizer.from_pretrained("amberoad/bert-multilingual-passage-reranking-msmarco")
+    model = AutoModelForSequenceClassification.from_pretrained("amberoad/bert-multilingual-passage-reranking-msmarco")
+    inputs = tokenizer([query] * len(documents), documents, return_tensors="pt", padding=True, truncation=True, max_length=128)
+    with torch.no_grad():
+        outputs = model(**inputs).logits
+    # Convert logits to ranking scores using softmax
+    scores = torch.softmax(outputs, dim=0).squeeze().tolist()
+    print(scores)
+    for index in range(len(searchResults)):
+      print(type(scores[index][1]))
+      searchResults[index]["score1"] = scores[index][1]
+    return Query.sortRerankingResults(searchResults)
+  
+  def reranking2(query,searchResults):
 
-  def doSearch(queryText:str, docRelIds:ArrayType, top_k:int = 10) -> ArrayType:
+    # Load mô hình Cross-Encoder
+    model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    documents = [doc["content"] for doc in searchResults]
+    # Tạo list (query, doc) pairs
+    pairs = [(query, doc) for doc in documents]
+    # Dự đoán độ phù hợp
+    scores = model.predict(pairs)
+    print(scores)
+    for index in range(len(searchResults)):
+      print(scores[index])
+      print(type(scores[index]))
+      searchResults[index]["score1"] = float(scores[index])
+    return searchResults
+    
+  def doSearch(queryText:str, docRelIds:ArrayType, top_k:int = 20, isReranking:bool = False) -> ArrayType:
+    current_datetime = datetime.datetime.now()
+
     if(queryText != Query.currentTerm):
       Query.doc_tfidf_vector_rel = []
       docRelIds = []
@@ -89,15 +133,28 @@ class Query:
         Query.doc_tfidf_vector_rel = np.asarray(Query.tfidf_matrix[doc_idx]).squeeze()
       else:
         Query.doc_tfidf_vector_rel += np.asarray(Query.tfidf_matrix[doc_idx]).squeeze()
+    if len(docRelIds) > 0:
       query_tfidf_vector += Query.doc_tfidf_vector_rel
-    results = Query.search(query_tfidf_vector, top_k)
-    return [{"id":result[0],"content": Query.DocOriginArr[result[0]]} for result in results]
   
+    results = Query.search(query_tfidf_vector, top_k)
+    data = [{"id":result[0], "score":result[1],"score1":0,"content": Query.DocOriginArr[result[0]]} for result in results]
+    if isReranking:
+      data = Query.reranking(queryText,data)
+    return {"data":data, "hit": Query.totalHits, "total": len(Query.DocOriginArr), "time":(datetime.datetime.now() - current_datetime).total_seconds()}
+  
+  
+  def sortRerankingResults(results):
+      return sorted(results, key= lambda item: ((item["score"]+item["score1"])), reverse = True)
+
   def init():
     topics = [
       'the-thao',
       'giao-duc',
-      'khoa-hoc'
+      'khoa-hoc',
+      'du-lich',
+      'oto-xe-may',
+      'suc-khoe',
+      'the-gioi',
     ]
     # Duyệt qua từng chủ đề
     Query.D = []
@@ -162,7 +219,7 @@ def search():
       # Process the received JSON data
       print(f"Received data: {data}")
       print(f"data: {data['term']}")
-      result = Query.doSearch(data['term'], data['rdoc'], data['limit'])
+      result = Query.doSearch(data['term'], data['rdoc'], data['limit'], data['isReranking'])
       return jsonify(result), 200
   else:
       return jsonify({"error": "Request must be JSON"}), 400
